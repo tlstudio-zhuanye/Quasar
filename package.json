@@ -1,0 +1,73 @@
+{
+  "name": "quasar",
+  "productName": "Quasar",
+  "version": "1.2.0",
+  "description": "TLSTUDIO · 双平台聚合音乐播放器（网易云 / QQ音乐）",
+  "author": "TLSTUDIO",
+  "license": "MIT",
+  "private": true,
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "start": "electron .",
+    "preview": "npm run build && electron .",
+    "icon": "python tools/make-icon.py",
+    "dist": "npm run build && electron-builder --win --x64 --publish never",
+    "dist:portable": "npm run build && electron-builder --win portable --x64 --publish never"
+  },
+  "build": {
+    "appId": "cn.tlstudio.quasar",
+    "productName": "Quasar",
+    "copyright": "Copyright © 2026 TLSTUDIO",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "compression": "normal",
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "Quasar-v${version}-portable.${ext}",
+      "unicode": true
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "Quasar-v${version}-setup.${ext}",
+      "shortcutName": "Quasar"
+    }
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.10",
+    "electron": "^44.8.0",
+    "vite": "^8.3.4"
+  },
+  "dependencies": {
+    "pinia": "^4.1.0",
+    "qrcode": "^1.5.4",
+    "vue": "^3.5.44"
+  }
+}

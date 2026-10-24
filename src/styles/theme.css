@@ -1,0 +1,123 @@
+/* ══════════ Quasar 主题 ══════════
+   两套皮肤由 body[data-mode] 切换：
+   netease 网易云(红) / qq QQ音乐(绿)
+*/
+
+:root {
+  /* 网易云（默认） */
+  --brand: #ec4141;
+  --brand-dark: #d03030;
+  --brand-soft: rgba(236, 65, 65, 0.12);
+
+  --bg: #f6f7f9;
+  --bg-elev: #ffffff;
+  --sidebar: #f2f3f5;
+  --panel: #ffffff;
+
+  --text: #1f2126;
+  --text-2: #5c6070;
+  --text-3: #9aa0b0;
+
+  --border: #e7e9ee;
+  --hover: #f0f1f4;
+  --active: #e8e9ed;
+
+  --player-bar: #ffffff;
+  --scroll: #d4d7de;
+
+  --radius: 10px;
+  --radius-sm: 6px;
+
+  font-family: "Microsoft YaHei UI", "Microsoft YaHei", -apple-system,
+    "Segoe UI", Roboto, "PingFang SC", sans-serif;
+}
+
+body[data-mode="qq"] {
+  --brand: #31c27c;
+  --brand-dark: #26a968;
+  --brand-soft: rgba(49, 194, 124, 0.12);
+}
+
+body[data-mode="kugou"] {
+  --brand: #2ca2f9;
+  --brand-dark: #1b8fe0;
+  --brand-soft: rgba(44, 162, 249, 0.12);
+}
+
+/* ---------- 基础 ---------- */
+* { box-sizing: border-box; }
+
+html, body, #app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  overflow: hidden;
+  user-select: none;
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+}
+button:disabled { cursor: not-allowed; opacity: 0.4; }
+
+input {
+  font-family: inherit;
+  outline: none;
+  border: none;
+  background: none;
+  color: inherit;
+}
+
+/* ---------- 滚动条 ---------- */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb {
+  background: var(--scroll);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- 无边框窗口拖动区 ---------- */
+.drag { -webkit-app-region: drag; }
+.nodrag { -webkit-app-region: no-drag; }
+
+/* ---------- 通用 ---------- */
+.ellipsis {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.badge-vip {
+  display: inline-block;
+  padding: 0 3px;
+  font-size: 9px;
+  line-height: 14px;
+  color: #fff;
+  background: var(--brand);
+  border-radius: 3px;
+  transform: scale(0.9);
+}
+
+.plat-tag {
+  display: inline-block;
+  padding: 0 5px;
+  font-size: 10px;
+  line-height: 15px;
+  border-radius: 3px;
+  border: 1px solid currentColor;
+  opacity: 0.85;
+}
+.plat-netease { color: #ec4141; }
+.plat-qq { color: #31c27c; }

@@ -1,0 +1,18 @@
+node_modules/
+dist/
+release/
+*.log
+.DS_Store
+
+# 本机数据（含登录 Cookie，绝不进仓库）
+tlmusic-data.json
+quasar-data.json
+startup.log
+.no-sandbox
+
+# 截图与一次性文件
+/*.png
+/_*.txt
+/_*.log
+/_*.md
+tools/silence.wav
