@@ -1,7 +1,7 @@
 {
   "name": "quasar",
   "productName": "Quasar",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "TLSTUDIO · 双平台聚合音乐播放器（网易云 / QQ音乐）",
   "author": "TLSTUDIO",
   "license": "MIT",

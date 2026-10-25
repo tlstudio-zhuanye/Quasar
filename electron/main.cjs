@@ -21,14 +21,21 @@ const DEV_URL = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5178'
 const sources = require('./sources/index.cjs')
 const store = require('./store.cjs')
 
-/* ══════════════ 0. GPU 兜底 ══════════════
+/* ══════════════ 0. GPU / 渲染模式 ══════════════
  * 独立 GPU 进程在受限环境（远程桌面 / 虚拟机 / 沙箱）里常常起不来，Chromium 的
  * 默认行为是重试几次后直接 FATAL 退出，用户看到的就是「双击没反应」。
- * 实测（本机）：--no-sandbox 时 GPU 只退一次就正常 ⇒ 显卡本身没问题，是进程隔离挡的。
- * 所以这里固定两个开关，把「GPU 起不来」这个失败模式从根上拿掉：
+ * 所以这里固定两个开关，把「GPU 进程起不来就自杀」这个失败模式拿掉：
  *   1) disable-gpu-process-crash-limit：取消「失败重试超限就自杀」的上限，进程不会死；
  *   2) in-process-gpu：GPU 代码跑在主进程里，没有独立进程可崩，也就不存在重试风暴。
- * TL_NO_GPU=1 或远程桌面会话：连尝试都省掉，直接走软件渲染。
+ *
+ * 渲染模式（2026-10-25 本机实测，关键坑）：
+ *   Chromium 自动降级到 SwiftShader 软件合成时（gpu_compositing=disabled_software，
+ *   即不显式关 GPU、让它自己降级），渲染器能画出完整 UI（CDP 截图完全正常），
+ *   但合成上屏是一层均匀深灰（#242420，亮度 32-64，无任何内容）——
+ *   用户看到的就是「打开就是一片灰 / 黑屏 / 打不开」。
+ *   显式 --disable-gpu（软件光栅保持启用）走的是另一条合成路径，画面完全正常。
+ *   ⇒ 默认就走软件渲染；确需在显卡正常的机器上试验 GPU 路径：TL_USE_GPU=1。
+ *   远程桌面会话同样强制软件渲染。
  */
 const isRemoteSession = /^RDP/i.test(process.env.SESSIONNAME || '')
 
@@ -68,11 +75,19 @@ app.commandLine.appendSwitch('in-process-gpu')
 // 本地播放器：允许无用户手势自动播放（列表双击即播，不用先点一下界面）
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 
-if (process.env.TL_NO_GPU === '1' || isRemoteSession) {
+// 见上方「渲染模式」实测记录：让 Chromium 自己降级 SwiftShader 会上屏死灰，
+// 显式软件渲染（--disable-gpu，软件光栅保持启用）才正常 ⇒ 默认软件渲染。
+// TL_USE_GPU=1 可在显卡正常的机器上试验 GPU 路径；TL_NO_GPU=1 / 远程桌面强制软件。
+const useGpuPath =
+  process.env.TL_USE_GPU === '1' &&
+  process.env.TL_NO_GPU !== '1' &&
+  !isRemoteSession
+if (!useGpuPath) {
   app.disableHardwareAcceleration()
   app.commandLine.appendSwitch('disable-gpu')
-  app.commandLine.appendSwitch('disable-software-rasterizer')
-  console.log('[TL] 软件渲染（' + (process.env.TL_NO_GPU === '1' ? 'TL_NO_GPU=1' : '远程桌面会话') + '）')
+  console.log('[TL] 软件渲染（' + (isRemoteSession ? '远程桌面会话' : '默认') + '）')
+} else {
+  console.log('[TL] GPU 渲染（TL_USE_GPU=1）')
 }
 
 const UA =
@@ -494,7 +509,7 @@ if (!gotLock) {
         ' gpu=' + gc +
         ' webgl=' + webgl +
         ' noSandbox=' + String(sandboxOff) +
-        ' softRender=' + String(process.env.TL_NO_GPU === '1' || isRemoteSession) +
+        ' softRender=' + String(!useGpuPath) +
         '\n'
       fs.appendFileSync(path.join(app.getPath('userData'), 'startup.log'), line)
     } catch (_) {}
