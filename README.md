@@ -5,6 +5,9 @@ TLSTUDIO 出品的双平台聚合音乐播放器 —— **网易云 / QQ音乐**
 
 > 2026-10-24 起产品名由「TL音乐 / TLMusic」改为 **Quasar**（类星体）。
 > 老版本的数据在 `%APPDATA%\TL音乐\`，新版本首次启动会自动搬到 `%APPDATA%\Quasar\`。
+>
+> **v1.2.1**（2026-10-25）：修复无歌曲时进入全屏歌词舞台显示为黑屏的问题 ——
+> 空态改为带引导的明确提示（主题氛围光 + 「还没有在播放的歌曲」+ 返回按钮）。
 
 ## 它是什么
 
@@ -105,25 +108,28 @@ npm run dist     # 打 Windows 包（需要 electron-builder 完整装好，输�
 装不上时走自写的兜底链路，**完全不联网、不需要 electron-builder**：
 
 ```bash
-node tools/pack-portable.cjs                       # 拼出 release/Quasar-v1.2.0-portable/
-node tools/patch-exe.cjs "release/Quasar-v1.2.0-portable/Quasar-v1.2.0.exe" build/icon.ico
+node tools/pack-portable.cjs                       # 拼出 release/Quasar-v1.2.1-portable/
+node tools/patch-exe.cjs "release/Quasar-v1.2.1-portable/Quasar-v1.2.1.exe" build/icon.ico
 ```
 
 - `pack-portable.cjs`：复制 `node_modules/electron/dist` → 把 `electron.exe`
-  改名成 `Quasar-v1.2.0.exe` → 把 `dist/` + `electron/` + `package.json`
+  改名成 `Quasar-v1.2.1.exe` → 把 `dist/` + `electron/` + `package.json`
   放进 `resources/app/` → 附一份「使用说明.txt」。
 - `patch-exe.cjs`：用 **resedit**（纯 JS 的 PE 资源编辑器）把图标和版本信息写进 exe，
   替代需要联网下载的 rcedit。
 - 前端产物要**先 `npm run build`**（`pack-portable.cjs` 不会自己构建），
   否则打进去的是旧的 `dist/`。
 
-> 打包前记得先结束正在运行的实例，否则 `release/` 目录被占用会报 `EBUSY`：
-> `taskkill /IM "Quasar-v1.2.0.exe" /T /F`
+> 打包前记得先结束正在运行的实例，否则 `release/` 目录被占用会报 `EBUSY`。
+> 杀进程要**按路径过滤**（别误杀桌面上手工测试的那一份），PowerShell 一把梭：
+> `Get-Process | ? { $_.Path -like '*release\Quasar-v1.2.1-portable*' } | Stop-Process -Force`
+> （本机 PortableGit 的 bash 里 `taskkill //IM` 传双斜杠会被原样传下去、报"无效参数"，
+> 别走那条路。）
 
 产出的成品文件名带版本号，一眼能分清是哪一版：
 
 ```
-release/Quasar-v1.2.0-portable/Quasar-v1.2.0.exe   # 免安装，双击即用
+release/Quasar-v1.2.1-portable/Quasar-v1.2.1.exe   # 免安装，双击即用
 ```
 
 ## 三个环境坑（都踩过，别再踩）

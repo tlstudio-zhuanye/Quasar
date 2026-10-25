@@ -101,7 +101,7 @@ const percent = computed(() => (player.duration ? Math.min(100, (sec.value / pla
 </script>
 
 <template>
-  <div class="stage" :style="{ '--accent': accent }">
+  <div class="stage" :class="{ 'no-cover': !cover }" :style="{ '--accent': accent }">
     <!-- 背景：封面放大模糊 -->
     <div v-if="cover" class="bg" :style="{ backgroundImage: `url(${cover})` }"></div>
     <div class="veil"></div>
@@ -109,8 +109,22 @@ const percent = computed(() => (player.duration ? Math.min(100, (sec.value / pla
     <!-- 退出 -->
     <button class="exit" title="退出全屏歌词（ESC）" @click="emit('close')">✕</button>
 
+    <!-- 空态：还没有开始播放（无歌曲时整屏近黑会被当成黑屏，必须给明确引导） -->
+    <div v-if="!player.current" class="emptystate">
+      <div class="ei">
+        <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 18V5l12-2v13" />
+          <circle cx="6" cy="18" r="3" />
+          <circle cx="18" cy="16" r="3" />
+        </svg>
+      </div>
+      <div class="et">还没有在播放的歌曲</div>
+      <div class="es">去列表里点一首开始播放<br>播放时双击封面或点 ⛶ 就能进入歌词舞台</div>
+      <button class="back" @click="emit('close')">返回主界面（ESC）</button>
+    </div>
+
     <!-- 歌词三行视口：上一行 / 当前行 / 下一行 -->
-    <div class="lyrics">
+    <div v-else class="lyrics">
       <div v-if="prevLine" class="row prev">{{ prevLine.text }}</div>
 
       <div v-if="curLine" class="row cur">
@@ -130,7 +144,7 @@ const percent = computed(() => (player.duration ? Math.min(100, (sec.value / pla
     </div>
 
     <!-- 底部：歌曲信息 + 进度 -->
-    <div class="foot">
+    <div v-if="player.current" class="foot">
       <div class="meta">
         <span class="nm ellipsis">{{ name }}</span>
         <span class="ar ellipsis">{{ artist }}<template v-if="album"> · {{ album }}</template></span>
@@ -155,6 +169,13 @@ const percent = computed(() => (player.duration ? Math.min(100, (sec.value / pla
   display: flex;
   flex-direction: column;
   user-select: none;
+}
+/* 无封面时：用主题色铺一层氛围光，避免整屏纯黑被当成黑屏 */
+.stage.no-cover {
+  background:
+    radial-gradient(ellipse 85% 55% at 50% 26%, color-mix(in srgb, var(--accent) 26%, transparent) 0%, transparent 72%),
+    radial-gradient(ellipse 55% 42% at 84% 88%, color-mix(in srgb, var(--accent) 13%, transparent) 0%, transparent 70%),
+    #0b0d12;
 }
 
 /* 封面模糊背景 */
@@ -238,6 +259,43 @@ const percent = computed(() => (player.duration ? Math.min(100, (sec.value / pla
   font-weight: 400;
   color: rgba(255, 255, 255, 0.62);
 }
+
+/* 空态：无歌曲时的引导 */
+.emptystate {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 0 9vw;
+  text-align: center;
+}
+.emptystate .ei { color: rgba(255, 255, 255, 0.32); }
+.emptystate .et {
+  font-size: clamp(20px, 2.6vw, 30px);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.emptystate .es {
+  font-size: clamp(13px, 1.4vw, 15px);
+  line-height: 1.8;
+  color: rgba(255, 255, 255, 0.55);
+}
+.emptystate .back {
+  margin-top: 10px;
+  padding: 9px 24px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.emptystate .back:hover { background: rgba(255, 255, 255, 0.16); color: #fff; }
 
 /* 逐字卡拉OK */
 .words {
