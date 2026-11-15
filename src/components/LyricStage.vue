@@ -1,13 +1,14 @@
 <script setup>
 /**
- * LyricStage.vue — 全屏沉浸式歌词舞台（v1.2.0）
- * Folia 式体验：封面放大模糊铺底、封面取色主题、三行视口、
- * 逐字卡拉OK高亮（网易云 YRC），60fps rAF 驱动。
- * 进入：PlayerBar「⛶」按钮 / 双击封面；退出：ESC / ✕ 按钮。
+ * LyricStage.vue — 全屏沉浸式歌词舞台（v1.2.3）
+ * 连续滚动歌词：整列随播放进度 translateY 平滑上滚，当前行始终居中；
+ * 逐字卡拉OK高亮（网易云 YRC）；封面放大模糊铺底 + 取色主题；60fps rAF 驱动。
+ * 进入：PlayerBar「⛶」按钮 / 双击封面；退出：ESC / ✕ 按钮；点击某行可跳转播放。
  */
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { usePlayerStore, getAudio } from '../stores/player'
 import { lineIndexAt, wordProgress, fmtTime } from '../utils/lyrics'
+import LyricFX from './LyricFX.vue'
 
 const emit = defineEmits(['close'])
 const player = usePlayerStore()
@@ -23,24 +24,37 @@ function tick () {
 onMounted(() => {
   raf = requestAnimationFrame(tick)
   window.addEventListener('keydown', onKey)
+  window.addEventListener('resize', updateOffset)
 })
 onUnmounted(() => {
   cancelAnimationFrame(raf)
   window.removeEventListener('keydown', onKey)
+  window.removeEventListener('resize', updateOffset)
 })
 function onKey (e) {
   if (e.key === 'Escape') emit('close')
 }
 
-/* ---- 歌词三行视口 ---- */
+/* ---- 歌词滚动：整列 translateY，当前行居中 ---- */
 const curIndex = computed(() => lineIndexAt(player.lyric, sec.value))
 const curLine = computed(() => (curIndex.value >= 0 ? player.lyric[curIndex.value] : null))
-const prevLine = computed(() => (curIndex.value > 0 ? player.lyric[curIndex.value - 1] : null))
-const nextLine = computed(() => {
-  const i = curIndex.value
-  return i >= 0 && i + 1 < player.lyric.length ? player.lyric[i + 1] : null
-})
 const wordByWord = computed(() => !!(curLine.value && curLine.value.words && curLine.value.words.length))
+
+const viewport = ref(null)
+const linesEl = ref(null)
+const offset = ref(0)
+const lineEls = []
+function setLineRef (el, i) { if (el) lineEls[i] = el }
+function updateOffset () {
+  const i = curIndex.value
+  const el = lineEls[i]
+  const vp = viewport.value
+  if (!el || !vp) return
+  offset.value = el.offsetTop + el.offsetHeight / 2 - vp.clientHeight / 2
+}
+watch(curIndex, () => nextTick(updateOffset))
+watch(() => player.lyric, () => nextTick(updateOffset))
+onMounted(() => nextTick(updateOffset))
 
 /** 逐字渲染：词内 0~100% 填充进度 */
 function wordPct (w) {
@@ -52,6 +66,12 @@ function wordPct (w) {
     return sec.value >= w.end ? 100 : 0
   }
   return Math.round(progress * 100)
+}
+
+/** 点击某行跳转到该时间点 */
+function seekTo (t) {
+  const a = getAudio()
+  if (a && isFinite(t)) a.currentTime = t
 }
 
 /* ---- 封面取色主题 ---- */
@@ -106,10 +126,16 @@ const percent = computed(() => (player.duration ? Math.min(100, (sec.value / pla
     <div v-if="cover" class="bg" :style="{ backgroundImage: `url(${cover})` }"></div>
     <div class="veil"></div>
 
+    <!-- 粒子层：背景粒子 + 当前歌词粒子化 -->
+    <LyricFX
+      v-if="player.current"
+      :accent="accent"
+    />
+
     <!-- 退出 -->
     <button class="exit" title="退出全屏歌词（ESC）" @click="emit('close')">✕</button>
 
-    <!-- 空态：还没有开始播放（无歌曲时整屏近黑会被当成黑屏，必须给明确引导） -->
+    <!-- 空态：还没有开始播放 -->
     <div v-if="!player.current" class="emptystate">
       <div class="ei">
         <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -123,24 +149,33 @@ const percent = computed(() => (player.duration ? Math.min(100, (sec.value / pla
       <button class="back" @click="emit('close')">返回主界面（ESC）</button>
     </div>
 
-    <!-- 歌词三行视口：上一行 / 当前行 / 下一行 -->
-    <div v-else class="lyrics">
-      <div v-if="prevLine" class="row prev">{{ prevLine.text }}</div>
+    <!-- 歌词滚动列：整列随进度平滑上滚，当前行居中 -->
+    <div v-else class="lyrics" ref="viewport">
+      <div
+        v-if="!player.lyric.length"
+        class="placeholder"
+      >暂无歌词</div>
 
-      <div v-if="curLine" class="row cur">
-        <div v-if="wordByWord" class="words">
-          <span v-for="(w, i) in curLine.words" :key="i" class="w">
-            <span class="base">{{ w.text }}</span>
-            <span class="fill" :style="{ width: wordPct(w) + '%' }">{{ w.text }}</span>
+      <div v-else class="lines" ref="linesEl" :style="{ transform: `translateY(${-offset}px)` }">
+        <div
+          v-for="(l, i) in player.lyric"
+          :key="i"
+          class="line"
+          :ref="el => setLineRef(el, i)"
+          :class="{ cur: i === curIndex, passed: i < curIndex }"
+          @click="seekTo(l.time)"
+        >
+          <span v-if="i === curIndex && wordByWord" class="words">
+            <span v-for="(w, wi) in l.words" :key="wi" class="w">
+              <span class="base">{{ w.text }}</span>
+              <span class="fill" :style="{ width: wordPct(w) + '%' }">{{ w.text }}</span>
+            </span>
           </span>
-        </div>
-        <div v-else class="plain">{{ curLine.text }}</div>
-        <div v-if="curLine.trans" class="tr">{{ curLine.trans }}</div>
-      </div>
-      <div v-else-if="!player.lyric.length" class="row cur empty">暂无歌词</div>
-      <div v-else class="row cur empty">· · ·</div>
+          <span v-else class="plain">{{ l.text }}</span>
 
-      <div v-if="nextLine" class="row next">{{ nextLine.text }}</div>
+          <div v-if="i === curIndex && l.trans" class="tr">{{ l.trans }}</div>
+        </div>
+      </div>
     </div>
 
     <!-- 底部：歌曲信息 + 进度 -->
@@ -214,50 +249,57 @@ const percent = computed(() => (player.duration ? Math.min(100, (sec.value / pla
 }
 .exit:hover { background: rgba(255, 255, 255, 0.14); color: #fff; }
 
-/* 歌词区 */
+/* 歌词滚动区 */
 .lyrics {
   position: relative;
   z-index: 1;
   flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 18px;
-  padding: 0 9vw;
-  text-align: center;
-}
-.row {
-  max-width: 100%;
-  transition: opacity 0.35s, transform 0.35s, filter 0.35s;
-  line-height: 1.45;
-}
-.row.prev, .row.next {
-  font-size: clamp(15px, 1.9vw, 21px);
-  color: rgba(255, 255, 255, 0.32);
-  filter: blur(0.4px);
-  white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 82vw;
 }
-.row.cur {
-  font-size: clamp(24px, 3.4vw, 44px);
+.lines {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: 0 9vw;
+  will-change: transform;
+  transition: transform 0.5s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.line {
+  padding: 14px 0;
+  text-align: center;
+  font-size: clamp(16px, 2vw, 24px);
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.32);
+  cursor: pointer;
+  transition: color 0.4s, opacity 0.4s, transform 0.4s, filter 0.4s;
+  opacity: 0.55;
+}
+.line.passed { color: rgba(255, 255, 255, 0.2); opacity: 0.4; }
+.line.cur {
+  color: #fff;
+  opacity: 1;
   font-weight: 700;
+  font-size: clamp(22px, 3vw, 36px);
   letter-spacing: 0.02em;
   text-shadow: 0 4px 30px rgba(0, 0, 0, 0.45);
-  max-width: 86vw;
+  transform: scale(1.02);
 }
-.row.empty {
-  font-size: clamp(18px, 2.4vw, 28px);
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.4);
-}
-.row.cur .tr {
+.line.cur .tr {
   margin-top: 14px;
   font-size: clamp(14px, 1.6vw, 19px);
   font-weight: 400;
   color: rgba(255, 255, 255, 0.62);
+}
+.placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(18px, 2.4vw, 28px);
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.4);
 }
 
 /* 空态：无歌曲时的引导 */

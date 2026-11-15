@@ -19,6 +19,41 @@ const YRC_LINE_RE = /^\[(\d+),(\d+)\]/
 const YRC_WORD_RE = /\((\d+),(\d+)(?:,\d+)?\)/g
 const LRC_TIME_RE = /\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]/g
 
+/* ══════════ 无歌词文案识别 ══════════ */
+// 网易云对纯音乐 / 无版权歌词会返回这些「伪歌词」，应视为无歌词而非真实歌词行
+function isNoLyricText (text) {
+  const t = String(text || '')
+    .replace(/\s+/g, '')
+    .replace(/[，,。.!！?？、~～￥$]/g, '')
+  return (
+    !t ||
+    t === '纯音乐请欣赏' ||
+    t === '暂无歌词' ||
+    t === '暂无歌词敬请期待' ||
+    t === '此歌曲为没有填词的纯音乐请您欣赏' ||
+    t.includes('当前歌曲暂无歌词') ||
+    t.includes('歌词加载中')
+  )
+}
+
+/* ══════════ 多格式合并 ══════════ */
+// 把多路解析结果（格式可能混用）按时间排序合并、去重（同时间同文本只留一条）
+function mergeByTime (...arrays) {
+  const all = []
+  for (const arr of arrays) {
+    if (!Array.isArray(arr)) continue
+    for (const it of arr) if (it && it.text) all.push(it)
+  }
+  all.sort((a, b) => a.time - b.time)
+  const out = []
+  for (const it of all) {
+    const last = out[out.length - 1]
+    if (last && Math.abs(last.time - it.time) < 0.05 && last.text === it.text) continue
+    out.push(it)
+  }
+  return out
+}
+
 /* ══════════ 格式 1：LRC 文本 ══════════ */
 
 /** [mm:ss.xx]文字 → [{ time, text }]（秒） */
@@ -164,23 +199,35 @@ export function parseLyric (platform, raw = {}) {
   let wordByWord = false
 
   if (platform === 'netease') {
-    // 优先逐字 yrc（混合格式：制作名单 JSON-LRC + 正文 YRC）
+    // 1) 逐字 yrc 优先（混合格式：制作名单 JSON-LRC + 正文 YRC）
     if (yrc) {
       lines = parseYrc(yrc)
       wordByWord = lines.some((l) => l.words && l.words.length)
     }
-    // 逐字缺失/解析失败 → 退回 JSON-LRC 行级
-    if (!lines.length && lyric) lines = parseJsonLrc(lyric)
-    // 译文（JSON-LRC）
-    const trans = tlyric ? parseJsonLrc(tlyric) : []
+    // 2) 主歌词：网易云 lrc 常是「JSON-LRC 头 + 纯 LRC 正文」混合格式，
+    //    JSON-LRC 与纯 LRC 两种都解析再按时间合并，避免正文整段丢失（之前只解析
+    //    JSON-LRC，导致这类歌只剩「作词/作曲」两行，看着像歌词没了）。
+    if (!lines.length || !wordByWord) {
+      const jsonLines = lyric ? parseJsonLrc(lyric) : []
+      const lrcLines = lyric ? parseLrcText(lyric) : []
+      lines = mergeByTime(jsonLines, lrcLines)
+    }
+    // 3) 译文：tlyric 同样可能是 JSON-LRC 或纯 LRC，两种都解析合并
+    const trans = mergeByTime(
+      tlyric ? parseJsonLrc(tlyric) : [],
+      tlyric ? parseLrcText(tlyric) : []
+    )
     lines = attachTrans(lines, trans)
-    // 网易云 JSON-LRC 原文没有逐字歌词时，也补一份纯 LRC 文本尝试（老接口兼容）
+    // 4) 仍为空 → 纯 LRC 兜底（老接口 / 异常格式）
     if (!lines.length && lyric && !lyric.trim().startsWith('{')) lines = parseLrcText(lyric)
   } else {
     // QQ 及其他：纯文本 LRC + 译文
     lines = parseLrcText(lyric)
     lines = attachTrans(lines, parseLrcText(tlyric))
   }
+
+  // 过滤「纯音乐请欣赏 / 暂无歌词」等伪歌词行，让纯音乐落到「暂无歌词」占位而非显示成一行乱码
+  lines = lines.filter((l) => l && l.text && !isNoLyricText(l.text))
 
   return { lines, wordByWord }
 }

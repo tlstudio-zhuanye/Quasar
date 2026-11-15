@@ -107,6 +107,13 @@ function dragSeek (e) {
 
       <button
         class="ic"
+        title="歌曲评论（网易云乐评 / QQ 乐评）"
+        :disabled="!player.current"
+        @click="player.openComments(player.current)"
+      >评</button>
+
+      <button
+        class="ic"
         :class="{ on: showStage }"
         title="全屏歌词舞台（也可双击封面）"
         @click="emit('toggle-stage')"

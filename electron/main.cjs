@@ -417,7 +417,7 @@ function registerWindowIPC () {
 
 function registerMusicIPC () {
   const names = [
-    'search', 'songUrl', 'songDetail', 'lyric', 'playlist', 'playlistCat',
+    'search', 'songUrl', 'songDetail', 'lyric', 'comments', 'playlist', 'playlistCat',
     'recommend', 'ranking', 'toplists',
     'loginQr', 'loginCheck', 'loginCookie', 'loginState', 'logout', 'userPlaylists'
   ]

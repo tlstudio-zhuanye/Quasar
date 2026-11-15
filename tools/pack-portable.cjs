@@ -40,9 +40,11 @@ function copyDir (from, to, filter) {
 
 function findRcedit () {
   const guesses = [
+    path.join(ROOT, 'tools', 'rcedit-x64.exe'),
     path.join(ROOT, 'node_modules', 'rcedit', 'bin', 'rcedit-x64.exe'),
     path.join(ROOT, 'node_modules', 'rcedit', 'bin', 'rcedit.exe'),
-    path.join(ROOT, 'node_modules', 'app-builder-bin', 'win', 'x64', 'rcedit-x64.exe')
+    path.join(ROOT, 'node_modules', 'app-builder-bin', 'win', 'x64', 'rcedit-x64.exe'),
+    path.join(ROOT, 'node_modules', 'electron-winstaller', 'vendor', 'rcedit.exe')
   ]
   return guesses.find((p) => fs.existsSync(p)) || null
 }

@@ -6,6 +6,9 @@ import SongTable from '../components/SongTable.vue'
 import PlayerBar from '../components/PlayerBar.vue'
 import LoginDialog from '../components/LoginDialog.vue'
 import LyricStage from '../components/LyricStage.vue'
+import CommentPanel from '../components/CommentPanel.vue'
+import LyricFX from '../components/LyricFX.vue'
+import TileGrid from '../components/TileGrid.vue'
 import { useModeStore, MODES } from '../stores/mode'
 import { usePlayerStore } from '../stores/player'
 import { useFavStore } from '../stores/favorites'
@@ -40,6 +43,17 @@ function tip (msg) {
 }
 
 const lyricLines = computed(() => player.lyric)
+
+/* 发现页磁贴网格：榜单磁贴（可拖动吸附排序） */
+const tileItems = computed(() =>
+  (toplists.value || []).slice(0, 12).map((t) => ({
+    id: t.id, title: t.name, cover: t.cover, sub: '榜单'
+  }))
+)
+function onTileOpen (it) {
+  const t = (toplists.value || []).find((x) => x.id === it.id)
+  if (t) openRanking(t)
+}
 
 /** 逐字词的演唱状态：'' 未唱 / sung 已唱 / cur 正在唱 */
 function wordCls (wd, sec) {
@@ -214,6 +228,9 @@ function isCurMode (m) { return modeStore.mode === m }
 
 <template>
   <div class="app">
+    <!-- 全局粒子层：铺满整个应用窗口（pointer-events:none，不挡操作；全屏舞台打开时由舞台自己的粒子层接管） -->
+    <div v-if="!showStage" class="app-fx"><LyricFX /></div>
+
     <TitleBar />
 
     <div class="main">
@@ -258,6 +275,16 @@ function isCurMode (m) { return modeStore.mode === m }
             <span v-if="loading" class="loading">加载中…</span>
             <span v-else-if="songs.length" class="count">{{ songs.length }} 首</span>
           </h2>
+
+          <!-- 歌单磁贴：可拖动吸附排序（Folia 式） -->
+          <TileGrid
+            v-if="nav === 'discover' && tileItems.length"
+            class="tiles"
+            :items="tileItems"
+            tile-key="discover"
+            :cell="150"
+            @open="onTileOpen"
+          />
 
           <!-- 排行榜卡片 -->
           <div v-if="toplists.length && (nav === 'discover' || nav === 'toplist')" class="cards">
@@ -330,6 +357,9 @@ function isCurMode (m) { return modeStore.mode === m }
     <!-- 全屏歌词舞台 -->
     <LyricStage v-if="showStage" @close="showStage = false" />
 
+    <!-- 歌曲评论独立弹窗 -->
+    <CommentPanel v-if="player.commentPanel.open" />
+
     <LoginDialog
       v-if="showLogin"
       :platform="loginPlatform"
@@ -345,6 +375,16 @@ function isCurMode (m) { return modeStore.mode === m }
 
 <style scoped>
 .app { display: flex; flex-direction: column; height: 100vh; }
+
+/* 全局粒子层：固定铺满整个窗口，悬于所有 UI 之上但不拦截鼠标（pointer-events:none）。
+   文字粒子用 lighter 叠加发光，低透明度不伤可读性；全屏歌词舞台 z-index 更高会盖住它。 */
+.app-fx {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+}
+
 .main { flex: 1; display: flex; min-height: 0; }
 
 .content { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--panel); }

@@ -81,6 +81,15 @@ async function poll () {
     if (!r.ok) return
     const d = r.data
     if (d && d.logged) {
+      // 扫码 / 窗口登录常只回 uin，缺 qm_keyst 播放票据 → partial。
+      // 不谎报「登录成功」自动关窗：明确告知并保留补全入口，避免「登了放不了」的错觉。
+      if (d.partial) {
+        stop()
+        status.value = 'partial'
+        statusText.value = '账号已识别，但 QQ 播放授权未生成'
+        errMsg.value = '扫码 OAuth / 首页登录不会下发 qm_keyst，部分歌曲无法播放。请点下方「改用官方页面登录」，或切到「Cookie 导入」从 y.qq.com 播放器页整包复制。'
+        return
+      }
       stop()
       status.value = 'done'
       // 803 已确认但资料接口还没返回（pendingProfile）：先放行，下一次刷新会补资料
@@ -157,8 +166,15 @@ async function byOfficialWindow () {
       return
     }
     if (d.logged) {
+      // 官方窗口只登了首页，同样缺 qm_keyst：留住弹窗引导补全，不谎报成功
+      if (d.partial) {
+        status.value = 'partial'
+        statusText.value = '账号已同步，但 QQ 播放授权未完成'
+        errMsg.value = '请进入 y.qq.com 任意播放器页面后，切到「Cookie 导入」把整包 Cookie 粘进来。'
+        return
+      }
       status.value = 'done'
-      statusText.value = d.partial ? '账号已同步，播放授权未完成' : '登录成功'
+      statusText.value = '登录成功'
       setTimeout(() => emit('success', { profile: d.profile, message: d.message || '' }), 400)
     }
   } catch (e) {
@@ -193,7 +209,7 @@ async function byOfficialWindow () {
             <div v-else class="ph">{{ status === 'error' ? '!' : '…' }}</div>
           </div>
 
-          <p class="tip" :style="{ color: status === 'error' ? '#e05252' : 'var(--text-2)' }">
+          <p class="tip" :style="{ color: (status === 'error' || status === 'partial') ? '#e05252' : 'var(--text-2)' }">
             {{ statusText }}
           </p>
           <p v-if="errMsg" class="err">{{ errMsg }}</p>
@@ -205,6 +221,10 @@ async function byOfficialWindow () {
           <button v-if="status !== 'done'" class="official" :disabled="usingWindow" @click="byOfficialWindow">
             {{ usingWindow ? '等待登录中…' : '改用官方页面登录' }}
           </button>
+
+          <p class="note" v-if="status === 'partial'">
+            也可切到上方「Cookie 导入」：在 y.qq.com 进入任意播放页 → F12 → 整包复制 Cookie。
+          </p>
         </template>
 
         <!-- ═══ Cookie 导入模式 ═══ -->

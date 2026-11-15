@@ -37,7 +37,8 @@ export const usePlayerStore = defineStore('player', {
     lyric: [],
     lyricIndex: 0,
     lyricWordByWord: false,
-    ready: false
+    ready: false,
+    commentPanel: { open: false, song: null }
   }),
 
   getters: {
@@ -202,6 +203,11 @@ export const usePlayerStore = defineStore('player', {
     },
 
     async _loadLyric (song) {
+      // 切歌先清空，避免上一首歌词残留造成"加载不出来"的错觉
+      if (this.current && this.current.key === song.key) {
+        this.lyric = []
+        this.lyricWordByWord = false
+      }
       try {
         const r = await window.TL.music.lyric({
           platform: song.platform, id: song.id, hash: song.hash, mid: song.mid
@@ -214,8 +220,12 @@ export const usePlayerStore = defineStore('player', {
             this.lyricWordByWord = parsed.wordByWord
             this.lyricIndex = lineIndexAt(this.lyric, this.progress)
           }
+        } else {
+          console.warn('[lyric] 接口未返回歌词数据', song.platform, song.id, r)
         }
-      } catch (_) {}
+      } catch (e) {
+        console.error('[lyric] 歌词加载失败', song.platform, song.id, e && e.message)
+      }
     },
 
     async toggle () {
@@ -300,6 +310,16 @@ export const usePlayerStore = defineStore('player', {
     async playFrom (list, song) {
       const i = list.findIndex((x) => x.key === song.key)
       await this.playList(list, i >= 0 ? i : 0)
+    },
+
+    /** 打开/关闭歌曲评论弹窗（独立弹窗，跟随当前歌曲） */
+    openComments (song) {
+      const s = song || this.current
+      if (!s) return
+      this.commentPanel = { open: true, song: s }
+    },
+    closeComments () {
+      this.commentPanel.open = false
     }
   }
 })

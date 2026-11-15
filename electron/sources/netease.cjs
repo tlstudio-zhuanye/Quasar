@@ -101,12 +101,23 @@ function mapTrack (t) {
 /* ══════════ 接口 ══════════ */
 
 async function search ({ keyword, limit = 30, offset = 0 }) {
-  // /api/search/get/web 实测比 weapi 版稳定，且无需登录
-  const url =
-    `${BASE}/api/search/get/web?s=${encodeURIComponent(keyword)}` +
-    `&type=1&offset=${offset}&limit=${limit}&total=true`
-  const r = await request(url, { platform: PLATFORM, referer: BASE + '/' })
-  const songs = (r.result && r.result.songs) || []
+  // cloudsearch/pc 实测比 get/web 稳定得多：get/web 偶发 fetch failed，
+  // 导致搜索时好时坏、用户"很多歌搜不到/没歌词"。故主用 cloudsearch/pc，
+  // get/web 仅作兜底。两者 songs 字段结构一致，统一走下方 map。
+  const kw = encodeURIComponent(keyword)
+  const tryUrl = (s) =>
+    `${BASE}${s}?s=${kw}&type=1&offset=${offset}&limit=${limit}&total=true`
+  let songs = []
+  try {
+    const r = await request(tryUrl('/api/cloudsearch/pc'), { platform: PLATFORM, referer: BASE + '/' })
+    songs = (r && r.result && r.result.songs) || []
+  } catch (_) {}
+  if (!songs.length) {
+    try {
+      const r2 = await request(tryUrl('/api/search/get/web'), { platform: PLATFORM, referer: BASE + '/' })
+      songs = (r2 && r2.result && r2.result.songs) || []
+    } catch (_) {}
+  }
   return songs.map((s) => {
     const al = s.album || s.al || {}
     return {
@@ -157,7 +168,9 @@ async function lyric ({ id }) {
       { platform: PLATFORM, referer: `${BASE}/` }
     )
     const d = (r && (r.data || r)) || {}
-    if (d.lrc || d.yrc) {
+    // 注意：v1 接口有时返回 200 但 lrc/yrc 为 null（部分版权/地区受限歌曲），
+    // 此时不能只判"不抛错就收"，要检查确实有歌词内容，否则回退 weapi。
+    if ((d.lrc && d.lrc.lyric) || (d.yrc && d.yrc.lyric) || (d.tlyric && d.tlyric.lyric)) {
       return {
         lyric: (d.lrc && d.lrc.lyric) || '',
         tlyric: (d.tlyric && d.tlyric.lyric) || '',
@@ -235,6 +248,48 @@ async function userPlaylists () {
     trackCount: p.trackCount,
     creator: (p.creator && p.creator.nickname) || ''
   }))
+}
+
+/**
+ * 歌曲评论（网易云乐评）：api/v1/resource/comments 是公开 Web 接口，热评无需登录即可取。
+ * 返回 { total, hotComments[], comments[], more }；每条归一化为统一结构。
+ */
+function mapComment (c) {
+  const u = c.user || {}
+  const ip = typeof c.ipLocation === 'string'
+    ? c.ipLocation
+    : (c.ipLocation && (c.ipLocation.location || c.ipLocation.region || '')) || ''
+  const reply = (c.beReplied && c.beReplied[0]) || null
+  return {
+    id: c.commentId,
+    content: c.content || '',
+    likedCount: c.likedCount || 0,
+    time: c.time || 0, // 毫秒时间戳
+    user: {
+      nickname: u.nickname || '网易云用户',
+      avatarUrl: u.avatarUrl || '',
+      userId: u.userId || 0
+    },
+    ip,
+    repliedTo: reply
+      ? { nickname: (reply.user && reply.user.nickname) || '', content: reply.content || '' }
+      : null
+  }
+}
+
+async function comments ({ id, limit = 20, offset = 0 }) {
+  const rid = `R_SO_4_${encodeURIComponent(String(id))}`
+  const r = await request(
+    `${BASE}/api/v1/resource/comments/${rid}` +
+    `?limit=${limit}&offset=${offset}&rid=${rid}`,
+    { platform: PLATFORM, referer: `${BASE}/` }
+  )
+  return {
+    total: r.total || 0,
+    hotComments: (r.hotComments || []).map(mapComment),
+    comments: (r.comments || []).map(mapComment),
+    more: !!r.more
+  }
 }
 
 /* ---------- 扫码登录 ---------- */
@@ -356,6 +411,6 @@ async function logout () {
 module.exports = {
   platform: PLATFORM,
   search, songDetail, songUrl, lyric, playlist, playlistCat,
-  toplists, ranking, recommend, userPlaylists,
+  toplists, ranking, recommend, userPlaylists, comments,
   loginQr, loginCheck, loginCookie, loginState, logout
 }

@@ -240,6 +240,46 @@ async function userPlaylists () {
   }))
 }
 
+/**
+ * 歌曲评论（QQ 乐评）：c.y.qq.com 的 fcg_global_comment_h5.fcg（biztype=1 表示歌曲）。
+ * 公开接口，热评/最新均无需登录。返回 JSONP，request 助手会自动解包。
+ * 每条归一化为与网易云一致的结构（time 由秒转毫秒）。
+ */
+function mapQQComment (it) {
+  const reply = (it.reply && it.reply[0]) || null
+  return {
+    id: it.commentid,
+    content: decodeEntities(it.content || ''),
+    likedCount: it.praise_num || 0,
+    time: (it.time || 0) * 1000, // 秒 → 毫秒
+    user: {
+      nickname: it.nick || 'QQ音乐用户',
+      avatarUrl: it.avatarurl || '',
+      userId: 0
+    },
+    ip: it.ip_location || '',
+    repliedTo: reply
+      ? { nickname: reply.nick || '', content: decodeEntities(reply.content || '') }
+      : null
+  }
+}
+
+async function comments ({ mid, limit = 20, offset = 0 }) {
+  const pagenum = Math.floor(offset / limit)
+  const url =
+    'https://c.y.qq.com/base/fcgi-bin/fcg_global_comment_h5.fcg' +
+    `?cmd=4&commentid=0&reqtype=1&biztype=1&topid=${encodeURIComponent(String(mid))}` +
+    `&pagesize=${limit}&pagenum=${pagenum}&g_tk=5381&loginUin=0&hostUin=0` +
+    '&format=json&inCharset=utf8&outCharset=utf-8&notice=0&platform=yqq.json&needNewCode=0' +
+    '&callback=MusicJsonCallback'
+  const r = await request(url, { platform: PLATFORM, referer: YQQ })
+  const hot = ((r.hot_comment && r.hot_comment.commentlist) || []).map(mapQQComment)
+  const list = ((r.comment && r.comment.commentlist) || []).map(mapQQComment)
+  const total = (r.comment && (r.comment.total || r.total)) || (hot.length + list.length)
+  const more = !!(r.comment && r.comment.hasnext)
+  return { total, hotComments: hot, comments: list, more }
+}
+
 /* ---------- 扫码登录（QQ 互联 ptlogin2） ---------- */
 function hash33 (s) {
   let e = 0
@@ -419,6 +459,6 @@ async function logout () {
 module.exports = {
   platform: PLATFORM,
   search, songDetail, songUrl, lyric, playlist, playlistCat,
-  toplists, ranking, recommend, userPlaylists,
+  toplists, ranking, recommend, userPlaylists, comments,
   loginQr, loginCheck, loginCookie, loginState, logout
 }

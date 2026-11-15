@@ -47,6 +47,7 @@ contextBridge.exposeInMainWorld('TL', {
     songUrl: (p) => call('music:songUrl', p),
     songDetail: (p) => call('music:songDetail', p),
     lyric: (p) => call('music:lyric', p),
+    comments: (p) => call('music:comments', p),
     playlist: (p) => call('music:playlist', p),
     playlistCat: (p) => call('music:playlistCat', p),
     recommend: (p) => call('music:recommend', p),

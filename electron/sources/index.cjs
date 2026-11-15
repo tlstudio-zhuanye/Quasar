@@ -65,6 +65,7 @@ module.exports = {
   songUrl: (p) => pick(p).songUrl(p),
   songDetail: (p) => pick(p).songDetail(p),
   lyric: (p) => pick(p).lyric(p),
+  comments: (p) => pick(p).comments(p),
   playlist: (p) => pick(p).playlist(p),
   playlistCat: (p) => pick(p).playlistCat(p),
   recommend: (p) => pick(p).recommend(p),
