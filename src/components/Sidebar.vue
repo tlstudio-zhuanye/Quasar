@@ -8,7 +8,7 @@ const props = defineProps({
   userPlaylists: { type: Array, default: () => [] },
   loginInfo: { type: Object, default: () => ({}) }
 })
-const emit = defineEmits(['update:nav', 'login', 'logout'])
+const emit = defineEmits(['update:nav', 'login', 'logout', 'stats'])
 
 const modeStore = useModeStore()
 const favStore = useFavStore()
@@ -38,6 +38,13 @@ const collapsed = ref(false)
         <span v-if="n.key === 'favorites' && favStore.count" class="cnt">{{ favStore.count }}</span>
       </button>
     </nav>
+
+    <!-- 听歌报告（v1.2.9，纯本地统计） -->
+    <button class="report-btn" title="基于本地播放记录生成听歌画像，不联网不上传" @click="emit('stats')">
+      <span class="ico">◈</span>
+      <span class="txt">听歌报告</span>
+      <span class="new-tag">NEW</span>
+    </button>
 
     <!-- 平台账号 -->
     <div class="section">
@@ -149,6 +156,22 @@ const collapsed = ref(false)
   color: var(--text-3);
 }
 .sec-title .sub { font-size: 10px; }
+
+.report-btn {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; margin-top: 10px;
+  padding: 9px 10px; border-radius: 8px;
+  color: var(--text-2); text-align: left;
+  transition: background 0.15s, color 0.15s;
+}
+.report-btn:hover { background: var(--hover); color: var(--text); }
+.report-btn .ico { width: 16px; text-align: center; font-size: 13px; color: var(--brand); }
+.report-btn .txt { flex: 1; }
+.report-btn .new-tag {
+  font-size: 9px; color: #fff; background: var(--brand);
+  padding: 1px 5px; border-radius: 6px; letter-spacing: 0.5px;
+}
+.sidebar.collapsed .report-btn .new-tag { display: none; }
 
 .acct {
   display: flex;

@@ -455,6 +455,8 @@ function registerDBIPC () {
   ipcMain.handle('db:isFavorite', (_e, key) => store.isFavorite(key))
   ipcMain.handle('db:history', () => store.history())
   ipcMain.handle('db:pushHistory', (_e, song) => store.pushHistory(song))
+  ipcMain.handle('db:plays', () => store.plays())
+  ipcMain.handle('db:clearPlays', () => store.clearPlays())
 
   ipcMain.handle('sys:openExternal', (_e, url) => {
     if (/^https?:\/\//i.test(url)) shell.openExternal(url)
@@ -478,6 +480,42 @@ function registerDBIPC () {
     dbg(`on player:requestState from=${who(sender)}`)
     broadcast('player:needState', {}, sender)
   })
+}
+
+/**
+ * 全局快捷键（v1.2.9）
+ * 复用现有的 player:cmd 跨窗指令：主窗 store 在 init() 里已监听 'player:cmd'，
+ * 动作名和它支持的一致（toggle/next/prev/setVolume），无需改前端协议。
+ * 用 CmdOrCtrl+Alt 组合，避开系统占用；注册失败（被别的软件占了）只记日志不崩。
+ */
+function registerGlobalShortcuts () {
+  const send = (action, payload = {}) => {
+    if (mainWin && !mainWin.isDestroyed()) {
+      mainWin.webContents.send('player:cmd', { action, payload })
+    }
+  }
+  // 音量基准以主窗广播过来的为准，避免主进程 store 与前端状态不同步
+  let lastVolume = 0.8
+  ipcMain.on('player:broadcast', (_e, st) => {
+    if (st && typeof st.volume === 'number') lastVolume = st.volume
+  })
+  const curVol = () => lastVolume
+  const BINDINGS = [
+    ['CmdOrCtrl+Alt+P', () => send('toggle')],
+    ['CmdOrCtrl+Alt+Left', () => send('prev')],
+    ['CmdOrCtrl+Alt+Right', () => send('next')],
+    ['CmdOrCtrl+Alt+Up', () => send('setVolume', { v: Math.min(1, curVol() + 0.1) })],
+    ['CmdOrCtrl+Alt+Down', () => send('setVolume', { v: Math.max(0, curVol() - 0.1) })],
+    ['CmdOrCtrl+Alt+M', () => send('setVolume', { v: curVol() > 0 ? 0 : 0.8 })]
+  ]
+  for (const [accelerator, handler] of BINDINGS) {
+    try {
+      const ok = globalShortcut.register(accelerator, handler)
+      dbg(`globalShortcut ${accelerator} -> ${ok ? 'ok' : 'occupied'}`)
+    } catch (e) {
+      console.warn('[TL] 快捷键注册失败 ' + accelerator + ': ' + e.message)
+    }
+  }
 }
 
 /* ══════════════ 5. 应用生命周期 ══════════════ */
@@ -518,6 +556,7 @@ if (!gotLock) {
     registerWindowIPC()
     registerMusicIPC()
     registerDBIPC()
+    registerGlobalShortcuts()
     createMainWindow()
 
     app.on('activate', () => {

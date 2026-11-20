@@ -73,7 +73,9 @@ contextBridge.exposeInMainWorld('TL', {
     toggleFavorite: (song) => call('db:toggleFavorite', song),
     isFavorite: (key) => call('db:isFavorite', key),
     history: () => call('db:history'),
-    pushHistory: (song) => call('db:pushHistory', song)
+    pushHistory: (song) => call('db:pushHistory', song),
+    plays: () => call('db:plays'),
+    clearPlays: () => call('db:clearPlays')
   },
 
   /* ---------------- 主窗 ↔ 小窗 播放状态中继 ---------------- */

@@ -8,6 +8,26 @@ export const IS_MINI = location.hash.includes('mini')
 let audio = null
 let lastBroadcast = 0
 let seeking = false
+let sleepTimer = null
+let eqGraph = null
+
+/* EQ 5 段 peaking：频率覆盖低音到齿音，够用又不会把 slider 铺满屏 */
+const EQ_FREQS = [60, 250, 1000, 4000, 12000]
+const EQ_FLAT = [0, 0, 0, 0, 0]
+/* 增益单位 dB，范围 -12 ~ +12（面板 slider 用这个范围） */
+const EQ_PRESETS = {
+  flat:    [0, 0, 0, 0, 0],
+  pop:     [3, 1, 0, 2, 3],
+  rock:    [5, 2, -1, 2, 4],
+  jazz:    [3, 0, 1, 2, 3],
+  classic: [4, 2, 0, 2, 3],
+  vocal:   [-1, 1, 4, 2, 0],
+  electronic: [6, 3, 0, 1, 5],
+  acoustic: [2, 1, 2, 3, 2]
+}
+
+export const EQ_PRESET_NAMES = Object.keys(EQ_PRESETS)
+export const EQ_BAND_FREQS = EQ_FREQS.slice()
 
 function ensureAudio () {
   if (IS_MINI) return null
@@ -38,7 +58,10 @@ export const usePlayerStore = defineStore('player', {
     lyricIndex: 0,
     lyricWordByWord: false,
     ready: false,
-    commentPanel: { open: false, song: null }
+    commentPanel: { open: false, song: null },
+    queuePanel: { open: false },
+    sleep: { endAt: 0, remain: 0, mode: '' }, // 定时关闭：endAt=时间戳；mode=after-song 播完当前
+    eq: { enabled: false, bands: [], preset: 'flat' }
   }),
 
   getters: {
@@ -61,9 +84,18 @@ export const usePlayerStore = defineStore('player', {
       if (typeof cfg.volume === 'number') { this.volume = cfg.volume; a.volume = cfg.volume }
       if (cfg.repeat) this.repeat = cfg.repeat
 
-      a.addEventListener('play', () => { this.playing = true; this._broadcast(true) })
+      a.addEventListener('play', () => {
+        this.playing = true
+        // 自动播放策略：AudioContext 必须在用户手势后 resume，播放事件是可靠时机
+        if (eqGraph && eqGraph.ctx.state === 'suspended') eqGraph.ctx.resume().catch(() => {})
+        this._broadcast(true)
+      })
       a.addEventListener('pause', () => { this.playing = false; this._broadcast(true) })
-      a.addEventListener('ended', () => { this._step(1) })
+      a.addEventListener('ended', () => {
+        // 定时「播完当前曲」优先：到点就停，不走下一首
+        if (this._afterSongDone()) return
+        this._step(1)
+      })
       a.addEventListener('loadedmetadata', () => {
         if (isFinite(a.duration) && a.duration > 0) this.duration = a.duration
         this._broadcast(true)
@@ -88,12 +120,23 @@ export const usePlayerStore = defineStore('player', {
           else if (action === 'playSong') this.playSong(payload.song)
           else if (action === 'seek') this.seek(payload.sec)
           else if (action === 'setVolume') this.setVolume(payload.v)
+          else if (action === 'playIndex') this.playIndex(payload.i)
+          else if (action === 'removeAt') this.removeAt(payload.i)
+          else if (action === 'move') this.move(payload.from, payload.to)
+          else if (action === 'setSleep') this.setSleep(payload.minutes)
+          else if (action === 'setEqEnabled') this.setEqEnabled(payload.on)
+          else if (action === 'setEqBand') this.setEqBand(payload.idx, payload.gain)
+          else if (action === 'setEqPreset') this.setEqPreset(payload.name)
           else if (typeof this[action] === 'function') this[action]()
         } catch (e) {
           console.warn('[player] 指令执行失败', action, e)
         }
       })
       window.TL.on('player:needState', () => this._broadcast(true))
+
+      // 恢复定时关闭 / EQ 设置
+      this.restoreSleep()
+      this.restoreEq()
 
       this.ready = true
       this._broadcast(true)
@@ -320,6 +363,223 @@ export const usePlayerStore = defineStore('player', {
     },
     closeComments () {
       this.commentPanel.open = false
+    },
+
+    /* ═══════════ v1.2.9 新功能 ═══════════ */
+
+    /* ---- 播放队列 ---- */
+    openQueue () { this.queuePanel.open = true },
+    closeQueue () { this.queuePanel.open = false },
+
+    async playIndex (i) {
+      if (IS_MINI) return this.cmd('playIndex', { i })
+      await this._loadAt(i)
+    },
+
+    removeAt (i) {
+      if (IS_MINI) return this.cmd('removeAt', { i })
+      if (i < 0 || i >= this.queue.length) return
+      this.queue.splice(i, 1)
+      if (i === this.index) {
+        // 移除的是当前曲：停掉并顺延到同位置的下一首
+        const a = ensureAudio()
+        if (a) { a.pause(); a.removeAttribute('src'); a.load() }
+        this.current = null
+        this.playing = false
+        if (this.queue.length) this._loadAt(Math.min(i, this.queue.length - 1))
+      } else if (i < this.index) {
+        this.index--
+      }
+      this._broadcast(true)
+    },
+
+    clearQueue () {
+      if (IS_MINI) return this.cmd('clearQueue', {})
+      const a = ensureAudio()
+      if (a) { a.pause(); a.removeAttribute('src'); a.load() }
+      this.queue = []
+      this.index = -1
+      this.current = null
+      this.playing = false
+      this.progress = 0
+      this.duration = 0
+      this.lyric = []
+      this._broadcast(true)
+    },
+
+    move (from, to) {
+      if (IS_MINI) return this.cmd('move', { from, to })
+      const n = this.queue.length
+      if (from < 0 || from >= n || to < 0 || to >= n || from === to) return
+      const curKey = this.queue[this.index] && this.queue[this.index].key
+      const [item] = this.queue.splice(from, 1)
+      this.queue.splice(to, 0, item)
+      // 重排后重新定位当前曲，保证高亮/下一首不错乱
+      if (curKey) this.index = this.queue.findIndex((x) => x.key === curKey)
+      this._broadcast(true)
+    },
+
+    /* ---- 定时关闭 ---- */
+    setSleep (minutes) {
+      if (IS_MINI) return this.cmd('setSleep', { minutes })
+      const m = Number(minutes)
+      if (!m || m <= 0) return this.cancelSleep()
+      const endAt = Date.now() + m * 60 * 1000
+      this.sleep = { endAt, remain: m * 60, mode: 'timer' }
+      this._startSleepTick()
+      this._saveSetting({ sleepEndAt: endAt, sleepMode: 'timer' })
+    },
+
+    setSleepAfterSong () {
+      if (IS_MINI) return this.cmd('setSleepAfterSong', {})
+      this.sleep = { endAt: 0, remain: 0, mode: 'after-song' }
+      this._stopSleepTick()
+      this._saveSetting({ sleepEndAt: 0, sleepMode: 'after-song' })
+    },
+
+    cancelSleep () {
+      if (IS_MINI) return this.cmd('cancelSleep', {})
+      this.sleep = { endAt: 0, remain: 0, mode: '' }
+      this._stopSleepTick()
+      this._saveSetting({ sleepEndAt: 0, sleepMode: '' })
+    },
+
+    _startSleepTick () {
+      this._stopSleepTick()
+      sleepTimer = setInterval(() => {
+        const left = Math.max(0, Math.round((this.sleep.endAt - Date.now()) / 1000))
+        this.sleep.remain = left
+        if (left <= 0) {
+          const a = ensureAudio()
+          if (a) a.pause()
+          this.cancelSleep()
+        }
+      }, 1000)
+    },
+    _stopSleepTick () {
+      if (sleepTimer) { clearInterval(sleepTimer); sleepTimer = null }
+    },
+
+    /** 由 a.ended 触发：播完当前曲的定时模式在这里收尾 */
+    _afterSongDone () {
+      if (this.sleep.mode === 'after-song') {
+        const a = ensureAudio()
+        if (a) a.pause()
+        this.cancelSleep()
+        return true
+      }
+      return false
+    },
+
+    /** 启动时恢复未到期的定时 */
+    async restoreSleep () {
+      try {
+        const cfg = (await window.TL.db.get('settings')) || {}
+        if (cfg.sleepMode === 'timer' && cfg.sleepEndAt > Date.now()) {
+          this.sleep = { endAt: cfg.sleepEndAt, remain: Math.round((cfg.sleepEndAt - Date.now()) / 1000), mode: 'timer' }
+          this._startSleepTick()
+        } else if (cfg.sleepMode === 'after-song') {
+          this.sleep = { endAt: 0, remain: 0, mode: 'after-song' }
+        } else if (cfg.sleepEndAt || cfg.sleepMode) {
+          this._saveSetting({ sleepEndAt: 0, sleepMode: '' })
+        }
+      } catch (_) {}
+    },
+
+    /* ---- EQ 均衡器（Web Audio） ---- */
+    _eqBands () { return EQ_FREQS.slice() },
+
+    async ensureEqGraph () {
+      const a = ensureAudio()
+      if (!a || IS_MINI || eqGraph) return eqGraph
+      const AC = window.AudioContext || window.webkitAudioContext
+      if (!AC) return null
+      try {
+        const ctx = new AC()
+        const source = ctx.createMediaElementSource(a)
+        const filters = EQ_FREQS.map((f) => {
+          const b = ctx.createBiquadFilter()
+          b.type = 'peaking'
+          b.frequency.value = f
+          b.Q.value = 1.1
+          b.gain.value = 0
+          return b
+        })
+        // 链：source -> filter1 -> ... -> filter5 -> destination
+        let node = source
+        for (const f of filters) { node.connect(f); node = f }
+        node.connect(ctx.destination)
+        eqGraph = { ctx, source, filters }
+        // 自动播放策略：首次用户交互后必须 resume
+        if (ctx.state === 'suspended') await ctx.resume().catch(() => {})
+        return eqGraph
+      } catch (e) {
+        console.warn('[eq] 初始化失败（音频走直连）', e && e.message)
+        return null
+      }
+    },
+
+    async setEqEnabled (on) {
+      if (IS_MINI) return this.cmd('setEqEnabled', { on })
+      const enabled = !!on
+      if (enabled) {
+        const g = await this.ensureEqGraph()
+        if (!g) { this.eq.enabled = false; return }
+        if (g.ctx.state === 'suspended') await g.ctx.resume().catch(() => {})
+      }
+      this.eq.enabled = enabled
+      if (!enabled) this._applyEqBands(this.eq.bands.length ? this.eq.bands : EQ_FLAT)
+      this._saveSetting({ eqEnabled: enabled })
+      this._broadcast(true)
+    },
+
+    async setEqBand (idx, gain) {
+      if (IS_MINI) return this.cmd('setEqBand', { idx, gain })
+      if (!this.eq.bands.length) this.eq.bands = EQ_FLAT.slice()
+      this.eq.bands[idx] = Number(gain)
+      this.eq.preset = 'custom'
+      this._applyEqBands(this.eq.bands)
+      this._saveSetting({ eqBands: this.eq.bands, eqPreset: 'custom' })
+    },
+
+    async setEqPreset (name) {
+      if (IS_MINI) return this.cmd('setEqPreset', { name })
+      const bands = EQ_PRESETS[name]
+      if (!bands) return
+      this.eq.preset = name
+      this.eq.bands = bands.slice()
+      if (this.eq.enabled) {
+        const g = await this.ensureEqGraph()
+        if (g) this._applyEqBands(bands)
+      }
+      this._saveSetting({ eqBands: this.eq.bands, eqPreset: name })
+      this._broadcast(true)
+    },
+
+    _applyEqBands (bands) {
+      if (!eqGraph) return
+      const vals = (bands && bands.length === EQ_FREQS.length) ? bands : EQ_FLAT
+      eqGraph.filters.forEach((f, i) => {
+        // EQ 关闭时全部归零 = 直通（createMediaElementSource 不可逆，只能这样恢复原声）
+        const v = this.eq.enabled ? Number(vals[i]) || 0 : 0
+        try { f.gain.setTargetAtTime(v, eqGraph.ctx.currentTime, 0.02) } catch (_) { f.gain.value = v }
+      })
+    },
+
+    async restoreEq () {
+      try {
+        const cfg = (await window.TL.db.get('settings')) || {}
+        const bands = Array.isArray(cfg.eqBands) && cfg.eqBands.length === EQ_FREQS.length ? cfg.eqBands.slice() : EQ_FLAT.slice()
+        this.eq.bands = bands
+        this.eq.preset = cfg.eqPreset || 'flat'
+        if (cfg.eqEnabled) {
+          // 不主动 resume（要用户手势），标记为待启用；首次 toggle/play 时真正接图
+          this.eq.enabled = true
+          await this.ensureEqGraph().then((g) => {
+            if (g) this._applyEqBands(bands)
+          })
+        }
+      } catch (_) {}
     }
   }
 })

@@ -13,7 +13,8 @@ let cache = null
 function defaults () {
   return {
     favorites: [],   // 跨平台混合收藏
-    history: [],     // 播放历史
+    history: [],     // 播放历史（去重，最近 500 首）
+    plays: [],       // 播放事件流（不去重，听歌报告数据源，最近 5000 条）
     settings: {},    // 界面设置（模式、音量、主题…）
     cookies: {},     // 各平台登录态
     login: {}        // 各平台账号信息
@@ -121,12 +122,39 @@ function history () {
   return cache.history
 }
 
+const PLAYS_MAX = 5000
+
 function pushHistory (song) {
   init()
   const key = songKey(song)
+  const now = Date.now()
   cache.history = cache.history.filter((s) => songKey(s) !== key)
-  cache.history.unshift({ ...song, key, playedAt: Date.now() })
+  cache.history.unshift({ ...song, key, playedAt: now })
   if (cache.history.length > HISTORY_MAX) cache.history.length = HISTORY_MAX
+
+  // 事件流不去重：同一首歌每次播放都记一笔，听歌报告要数的是播放次数
+  if (!Array.isArray(cache.plays)) cache.plays = []
+  cache.plays.unshift({
+    key,
+    name: song.name || '',
+    artist: song.artist || '',
+    platform: song.platform || '',
+    duration: song.duration || 0,
+    playedAt: now
+  })
+  if (cache.plays.length > PLAYS_MAX) cache.plays.length = PLAYS_MAX
+  flush()
+  return true
+}
+
+function plays () {
+  init()
+  return Array.isArray(cache.plays) ? cache.plays : []
+}
+
+function clearPlays () {
+  init()
+  cache.plays = []
   flush()
   return true
 }
@@ -134,5 +162,6 @@ function pushHistory (song) {
 module.exports = {
   get, set,
   favorites, isFavorite, toggleFavorite,
-  history, pushHistory
+  history, pushHistory,
+  plays, clearPlays
 }

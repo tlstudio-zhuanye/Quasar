@@ -9,6 +9,8 @@ import LyricStage from '../components/LyricStage.vue'
 import CommentPanel from '../components/CommentPanel.vue'
 import LyricFX from '../components/LyricFX.vue'
 import TileGrid from '../components/TileGrid.vue'
+import QueuePanel from '../components/QueuePanel.vue'
+import StatsPanel from '../components/StatsPanel.vue'
 import { useModeStore, MODES } from '../stores/mode'
 import { usePlayerStore } from '../stores/player'
 import { useFavStore } from '../stores/favorites'
@@ -32,6 +34,7 @@ const showLogin = ref(false)
 const loginPlatform = ref('netease')
 const showLyric = ref(false)
 const showStage = ref(false)
+const showStats = ref(false)
 const toast = ref('')
 
 const lyricBox = ref(null)
@@ -241,6 +244,7 @@ function isCurMode (m) { return modeStore.mode === m }
         @update:nav="onNav"
         @login="openLogin"
         @logout="onLogout"
+        @stats="showStats = true"
       />
 
       <section class="content">
@@ -359,6 +363,12 @@ function isCurMode (m) { return modeStore.mode === m }
 
     <!-- 歌曲评论独立弹窗 -->
     <CommentPanel v-if="player.commentPanel.open" />
+
+    <!-- 播放队列管理（v1.2.9） -->
+    <QueuePanel v-if="player.queuePanel.open" />
+
+    <!-- 听歌报告（v1.2.9，纯本地统计） -->
+    <StatsPanel v-model="showStats" />
 
     <LoginDialog
       v-if="showLogin"

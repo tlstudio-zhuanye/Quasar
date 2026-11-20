@@ -1,8 +1,10 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { usePlayerStore } from '../stores/player'
 import { useFavStore } from '../stores/favorites'
 import { fmtTime } from '../utils/lrc'
+import EQPanel from './EQPanel.vue'
+import SleepPanel from './SleepPanel.vue'
 
 defineProps({
   showLyric: { type: Boolean, default: false },
@@ -13,6 +15,26 @@ const emit = defineEmits(['toggle-lyric', 'toggle-stage'])
 const player = usePlayerStore()
 const favStore = useFavStore()
 const win = window.TL.win
+
+/* 浮层：EQ / 定时。点空白处关闭 */
+const showEq = ref(false)
+const showSleep = ref(false)
+const popAnchor = ref(null)
+function onDocClick (e) {
+  if (!popAnchor.value) return
+  if (!popAnchor.value.contains(e.target)) { showEq.value = false; showSleep.value = false }
+}
+onMounted(() => document.addEventListener('click', onDocClick))
+onUnmounted(() => document.removeEventListener('click', onDocClick))
+
+const sleepLabel = computed(() => {
+  if (player.sleep.mode === 'after-song') return '播完停'
+  if (player.sleep.mode === 'timer') {
+    const s = Math.max(0, player.sleep.remain)
+    return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0')
+  }
+  return '定时'
+})
 
 const cover = computed(() => (player.current && player.current.cover) || '')
 const name = computed(() => (player.current && player.current.name) || '未在播放')
@@ -86,7 +108,26 @@ function dragSeek (e) {
     </div>
 
     <!-- 右：模式 / 音量 / 歌词 / 小窗 -->
-    <div class="right">
+    <div class="right" ref="popAnchor">
+      <!-- 播放队列 -->
+      <button class="ic" title="播放队列（拖拽排序 / 移除 / 清空）" @click="player.openQueue()">列</button>
+
+      <!-- EQ 均衡器 -->
+      <button
+        class="ic"
+        :class="{ on: showEq || player.eq.enabled }"
+        title="均衡器（5 段 Web Audio）"
+        @click="showEq = !showEq; showSleep = false"
+      >EQ</button>
+
+      <!-- 定时关闭 -->
+      <button
+        class="ic"
+        :class="{ on: showSleep || !!player.sleep.mode }"
+        :title="player.sleep.mode ? '定时关闭 · ' + sleepLabel : '定时关闭'"
+        @click="showSleep = !showSleep; showEq = false"
+      >{{ player.sleep.mode ? sleepLabel : '⏲' }}</button>
+
       <button class="ic" :title="player.repeatLabel" @click="player.cycleRepeat()">
         {{ REPEAT_ICON[player.repeat] }}
       </button>
@@ -130,11 +171,20 @@ function dragSeek (e) {
         </svg>
       </button>
     </div>
+
+    <!-- 浮层面板：定位在播放栏右上方 -->
+    <transition name="pop">
+      <div v-if="showEq" class="pop-layer"><EQPanel /></div>
+    </transition>
+    <transition name="pop">
+      <div v-if="showSleep" class="pop-layer"><SleepPanel /></div>
+    </transition>
   </footer>
 </template>
 
 <style scoped>
 .player-bar {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 16px;
@@ -144,6 +194,16 @@ function dragSeek (e) {
   background: var(--player-bar);
   border-top: 1px solid var(--border);
 }
+
+/* EQ / 定时浮层：贴在播放栏上方右侧 */
+.pop-layer {
+  position: absolute;
+  right: 16px;
+  bottom: 82px;
+  z-index: 120;
+}
+.pop-enter-active, .pop-leave-active { transition: opacity 0.15s, transform 0.15s; }
+.pop-enter-from, .pop-leave-to { opacity: 0; transform: translateY(6px); }
 
 /* ---- 左 ---- */
 .left { display: flex; align-items: center; gap: 10px; width: 260px; flex: none; }
@@ -223,7 +283,7 @@ function dragSeek (e) {
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ---- 右 ---- */
-.right { display: flex; align-items: center; gap: 4px; width: 260px; justify-content: flex-end; flex: none; }
+.right { display: flex; align-items: center; gap: 4px; width: 360px; justify-content: flex-end; flex: none; }
 .vol { display: flex; align-items: center; gap: 2px; }
 .vol-slider {
   width: 68px;
